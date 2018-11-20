@@ -27,6 +27,10 @@ sample a wrapper calling exe
 * ve card
 * veos > 1.3.0 (needs support for reading counters from card as well as some bug fixes)
 
+## building
+
+> make
+
 ## known bugs
 
 * deadlocks with openmp codes, the application deadlocks when being profiled.
