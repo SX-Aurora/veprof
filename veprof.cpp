@@ -62,6 +62,8 @@ extern "C" {
 #include <libved.h>
 
 
+#define FILEVERSION "0.1"
+
 const long default_sample_time_usec = 10000; // 10000 = 100 Hz
 long sample_time_usec;
 
@@ -99,6 +101,7 @@ struct addr_e {
 // global data
 std::vector<addr_e> searchtable;
 std::vector<data_e> datatable;
+uint64_t pmmr = 0xffffffffffffffff;
 
 // forward prototypes
 void get_ve_pid_list(int cardid, std::vector<pid_t> &pidlist);
@@ -127,6 +130,13 @@ void sample() {
 
 		// data collection from running aurora cards
 		if (pid.load()!=-1) {
+
+			if (pmmr == 0xffffffffffffffff) {
+				int reg = PMMR;
+				int r=ve_get_regvals(card, pid, 1, &reg, vals);
+				pmmr=vals[0];
+			}
+
 			// sample ON process
 			int r=ve_get_regvals(card, pid, 19, regs, vals);	
 			clock_gettime(CLOCK_MONOTONIC_RAW, &time3);
@@ -158,6 +168,15 @@ void sample() {
 			get_ve_pid_list(fullcardnr, pidlist);
 			for(auto ppid : pidlist) {
 				if (debug) std::cout << "<< sampling " << ppid << " >> " << std::endl;
+
+				if (pmmr == 0xffffffffffffffff) {
+					int reg = PMMR;
+					//FIXME nr is wrong
+					//r=ve_get_regvals(fullcardnr, ppid, 1, &reg, vals);
+					int r=ve_get_regvals(0, ppid, 1, &reg, vals);
+					pmmr=vals[0];
+				}
+
 				// FIXME this card nr is probably wrong
 				// int r=ve_get_regvals(fullcardnr, ppid, 19, regs, vals);	
 				int r=ve_get_regvals(0, ppid, 19, regs, vals);	
@@ -511,6 +530,9 @@ void fork_and_run(po::variables_map &options) {
 		// write out data  TODO: put mpi rank into name
 		std::ofstream ofs;
 		ofs.open("veprof.out",std::ofstream::out);
+		ofs << "# version,PMMR,hostname,card" << "\n";
+		ofs << FILEVERSION << "," << pmmr << "," << getenv("HOSTNAME") << "," << card.load() << "\n";
+		ofs << "# samples,USRCC,EX,VX,FPEC,VE,VECC,L1MCC,VE2,VAREC,VLDEC,PCCC,PMC10,VLEC,VLCME,FMAEC,PTCC,TTCC,VL,symbol\n";
 		for(auto e : datatable ) {
 			if (e.count>0) {
 				ofs << e.count << ",";
@@ -567,6 +589,9 @@ void full_card(po::variables_map options) {
 	// write out data  TODO: put mpi rank into name
 	std::ofstream ofs;
 	ofs.open("veprof.out",std::ofstream::out);
+	ofs << "# version,PMMR,hostname,card" << "\n";
+	ofs << FILEVERSION << "," << pmmr << "," << getenv("HOSTNAME") << "," << fullcardnr << "\n";
+	ofs << "# samples,USRCC,EX,VX,FPEC,VE,VECC,L1MCC,VE2,VAREC,VLDEC,PCCC,PMC10,VLEC,VLCME,FMAEC,PTCC,TTCC,VL,symbol\n";
 	for(auto e : datatable ) {
 		if (e.count>0) {
 			ofs << e.count << ",";
