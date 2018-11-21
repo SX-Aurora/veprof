@@ -6,8 +6,7 @@
 Goal of this tool is to get a profile of an application running on VE card without instrumenting
 the executable in any way, with lowest possbile overhead. The executable has to contain symbols.
 
-Output is a textfile containing performance counters and routine names, a tool to view this
-file will be provided, and the format will get documented soon.
+Output is a textfile containing performance counters and routine names, which can be viewed with `veprof_display`.
 
 The idea is to complement the relatively expensive (in terms of overhead) but precise `ftrace` tool
 with something less precise but cheaper.
@@ -28,6 +27,19 @@ sample a wrapper calling exe
 
     ./veprof -e ./exe ./wrapper.sh
 
+display gathered results:
+
+    ./veprof_display veprof.out
+
+gives something like
+
+```
+FUNCTION            SAMPLES   TIME    TIME VECTIME  VTIME   VOP MFLOPS   MOPS    AVG    L1$ PRTCNF  LLC$E
+                          %      %     [s]     [s]      %     %                 VLEN  MISS%    [s]   HIT%
+main                  53.33  55.00    0.08    0.08 100.00 98.63  33388  67707 254.46   0.00   0.00 100.00
+subroutine            46.67  45.00    0.06    0.06  96.21 98.55  32109  65167 254.46   0.00   0.00 100.00
+```
+
 ## prerequisites
 
 * ve card
@@ -39,7 +51,7 @@ sample a wrapper calling exe
 
 ## known bugs
 
-* sometimes applicatin deadlock when beeing profiled
+* sometimes applicatin deadlock when beeing profiled (under investigation)
 * deadlocks with openmp codes, the application deadlocks when being profiled.
 * there is an issue with card numbering in full card mode, with systems with one VE card, that should be no problem.
 
