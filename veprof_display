@@ -1,0 +1,112 @@
+#!/usr/bin/env python2
+
+# vim: syntax=python tabstop=2 shiftwidth=2 expandtab
+
+
+# veprof_display
+
+# simple ve prof displayer
+
+
+# (c) Holger Berger, NEC Deutschland GmBH 2018
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+
+import sys
+
+# helper, convert string to float, or return string if it can not be converted
+def tofloat(s):
+  try:
+    f=float(s)
+  except ValueError:
+    return s
+  return f
+
+
+values=[]
+
+# read headers
+infile = open(sys.argv[1])
+l = infile.readline() # read comment
+l = infile.readline()
+(fileversion,pmmr,hostname,card,mhz) = l[:-1].split(",")
+l = infile.readline() # read comment
+
+freq = float(mhz) 
+
+# FIXME pmmr should be checked for good value
+# FIXME version should be checked
+
+for l in infile:
+  try:
+    #(samples,USRCC,EX,VX,FPEC,VE,VECC,L1MCC,VE2,VAREC,VLDEC,PCCC,PMC10,VLEC,VLCME,FMAEC,PTCC,TTCC,VL,symbol) = map(tofloat, l[:-1].split(","))
+    v = map(tofloat, l[:-1].split(","))
+    values.append(v)
+  except ValueError:
+    pass
+
+infile.close()
+ 
+# sort expensive entry first, sort for samples, which should come close to elapse time
+values.sort(key=lambda a: a[1],reverse=True)
+
+
+# get some  total values
+totsamples = 0
+tottime = 0
+for v in values:
+  (samples,USRCC,EX,VX,FPEC,VE,VECC,L1MCC,VE2,VAREC,VLDEC,PCCC,PMC10,VLEC,VLCME,FMAEC,PTCC,TTCC,VL,symbol) = v
+  totsamples += samples
+  tottime += USRCC
+
+# print list of functions
+print "FUNCTION            SAMPLES   TIME    TIME VECTIME VTIME   VOP MFLOPS   MOPS    AVG    L1$ PRTCNF  LLC$E"
+print "                          %      %     [s]     [s]     %     %                 VLEN  MISS%    [s]   HIT%"
+
+for v in values:
+  (samples,USRCC,EX,VX,FPEC,VE,VECC,L1MCC,VE2,VAREC,VLDEC,PCCC,PMC10,VLEC,VLCME,FMAEC,PTCC,TTCC,VL,symbol) = v
+
+  MOPS        = (EX-VX+VE+FMAEC)/USRCC*freq
+  MFLOPS      = FPEC/USRCC*freq
+  VOPRATIO    = VE/(EX-VX+VE)*100
+  if VX>0:
+  	AVLEN       = VE/VX
+  else:
+    AVLEN	    = 0
+  VTIME       = VECC/(freq*1000000.0)
+  L1CACHEMISS = L1MCC/(freq*1000000.0)
+  CPUPORTCONF = PCCC/(freq*1000000.0)
+  if VLEC>0:
+  	VLDLLCHITE  = (1-VLCME/VLEC)*100
+  else:
+  	VLDLLCHITE  = 0
+
+
+  print "%-20s " % symbol,
+  if len(symbol)>20: print "\n%20s " % "",
+
+  print "%5.2f " % ((samples/totsamples)*100.0),
+  print "%5.2f" % ( (USRCC/tottime)*100 ),
+  print "%7.2f" % ( (USRCC/(freq*1000000)) ),
+  print "%7.2f" % ( (VTIME) ),
+  print "%5.2f" % ( (VTIME/(USRCC/(freq*1000000)))*100.0 ),
+  print "%5.2f" % ( VOPRATIO ),
+  print "%6d" % ( MFLOPS ),
+  print "%6d" % ( MOPS ),
+  print "%6.2f" % (AVLEN),
+  print "%6.2f" % ( L1CACHEMISS ),
+  print "%6.2f" % ( CPUPORTCONF ),
+  print "%5.2f" % ( VLDLLCHITE )
+
