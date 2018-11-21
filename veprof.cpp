@@ -530,8 +530,10 @@ void fork_and_run(po::variables_map &options) {
 		// write out data  TODO: put mpi rank into name
 		std::ofstream ofs;
 		ofs.open("veprof.out",std::ofstream::out);
-		ofs << "# version,PMMR,hostname,card" << "\n";
-		ofs << FILEVERSION << "," << pmmr << "," << getenv("HOSTNAME") << "," << card.load() << "\n";
+		struct ve_cpuinfo ci;
+		ve_cpu_info(card.load(), &ci);
+		ofs << "# version,PMMR,hostname,card,mhz" << "\n";
+		ofs << FILEVERSION << "," << pmmr << "," << getenv("HOSTNAME") << "," << card.load() << "," << ci.mhz << "\n";
 		ofs << "# samples,USRCC,EX,VX,FPEC,VE,VECC,L1MCC,VE2,VAREC,VLDEC,PCCC,PMC10,VLEC,VLCME,FMAEC,PTCC,TTCC,VL,symbol\n";
 		for(auto e : datatable ) {
 			if (e.count>0) {
@@ -589,8 +591,10 @@ void full_card(po::variables_map options) {
 	// write out data  TODO: put mpi rank into name
 	std::ofstream ofs;
 	ofs.open("veprof.out",std::ofstream::out);
-	ofs << "# version,PMMR,hostname,card" << "\n";
-	ofs << FILEVERSION << "," << pmmr << "," << getenv("HOSTNAME") << "," << fullcardnr << "\n";
+	struct ve_cpuinfo ci;
+	ve_cpu_info(card.load(), &ci);
+	ofs << "# version,PMMR,hostname,card,mhz" << "\n";
+	ofs << FILEVERSION << "," << pmmr << "," << getenv("HOSTNAME") << "," << fullcardnr << "," << ci.mhz << "\n";
 	ofs << "# samples,USRCC,EX,VX,FPEC,VE,VECC,L1MCC,VE2,VAREC,VLDEC,PCCC,PMC10,VLEC,VLCME,FMAEC,PTCC,TTCC,VL,symbol\n";
 	for(auto e : datatable ) {
 		if (e.count>0) {
