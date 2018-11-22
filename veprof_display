@@ -41,7 +41,7 @@ values=[]
 infile = open(sys.argv[1])
 l = infile.readline() # read comment
 l = infile.readline()
-(fileversion,pmmr,hostname,card,mhz) = l[:-1].split(",")
+(fileversion,pmmr,hostname,card,mhz) = l[:-1].split(";")
 l = infile.readline() # read comment
 
 freq = float(mhz) 
@@ -51,8 +51,8 @@ freq = float(mhz)
 
 for l in infile:
   try:
-    #(samples,USRCC,EX,VX,FPEC,VE,VECC,L1MCC,VE2,VAREC,VLDEC,PCCC,PMC10,VLEC,VLCME,FMAEC,PTCC,TTCC,VL,symbol) = map(tofloat, l[:-1].split(","))
-    v = map(tofloat, l[:-1].split(","))
+    #(samples,USRCC,EX,VX,FPEC,VE,VECC,L1MCC,VE2,VAREC,VLDEC,PCCC,PMC10,VLEC,VLCME,FMAEC,PTCC,TTCC,VL,symbol) = map(tofloat, l[:-1].split(";"))
+    v = map(tofloat, l[:-1].split(";"))
     values.append(v)
   except ValueError:
     pass
@@ -67,6 +67,7 @@ values.sort(key=lambda a: a[1],reverse=True)
 totsamples = 0
 tottime = 0
 for v in values:
+  # print v, len(v)
   (samples,USRCC,EX,VX,FPEC,VE,VECC,L1MCC,VE2,VAREC,VLDEC,PCCC,PMC10,VLEC,VLCME,FMAEC,PTCC,TTCC,VL,symbol) = v
   totsamples += samples
   tottime += USRCC
@@ -88,8 +89,9 @@ for v in values:
   VTIME       = VECC/(freq*1000000.0)
   L1CACHEMISS = L1MCC/(freq*1000000.0)
   CPUPORTCONF = PCCC/(freq*1000000.0)
+  # print VLCME,VLEC, FMAEC, FPEC
   if VLEC>0:
-  	VLDLLCHITE  = (1-VLCME/VLEC)*100
+  	VLDLLCHITE  = (1.0-VLCME/VLEC)*100
   else:
   	VLDLLCHITE  = 0
 
