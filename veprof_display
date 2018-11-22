@@ -72,9 +72,10 @@ for v in values:
   totsamples += samples
   tottime += USRCC
 
+
 # print list of functions
-print "FUNCTION            SAMPLES   TIME    TIME VECTIME  VTIME   VOP MFLOPS   MOPS    AVG    L1$ PRTCNF  LLC$E"
-print "                          %      %     [s]     [s]      %     %                 VLEN  MISS%    [s]   HIT%"
+print "FUNCTION            SAMPLES   TIME    TIME VECTIME  VTIME VARITHM   VLOAD   VOP MFLOPS   MOPS    AVG    L1$ PRTCNF  LLC$E"
+print "                          %      %     [s]     [s]      %     [s]     [s]     %                 VLEN  MISS%    [s]   HIT%"
 
 for v in values:
   (samples,USRCC,EX,VX,FPEC,VE,VECC,L1MCC,VE2,VAREC,VLDEC,PCCC,PMC10,VLEC,VLCME,FMAEC,PTCC,TTCC,VL,symbol) = v
@@ -104,11 +105,14 @@ for v in values:
   print "%7.2f" % ( (USRCC/(freq*1000000)) ),
   print "%7.2f" % ( (VTIME) ),
   print "%6.2f" % ( (VTIME/(USRCC/(freq*1000000)))*100.0 ),
+  print "%7.2f" % ( VAREC/(freq*1000000) ),
+  print "%7.2f" % ( VLDEC/(freq*1000000) ),
   print "%5.2f" % ( VOPRATIO ),
   print "%6d" % ( MFLOPS ),
   print "%6d" % ( MOPS ),
   print "%6.2f" % (AVLEN),
   print "%6.2f" % ( L1CACHEMISS ),
   print "%6.2f" % ( CPUPORTCONF ),
-  print "%5.2f" % ( VLDLLCHITE )
+  print "%6.2f" % ( VLDLLCHITE )
 
+print int(totsamples), "samples"
