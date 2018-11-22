@@ -115,6 +115,10 @@ void sample() {
 	uint64_t vals[counters],oldvals[counters];
 	std::vector<pid_t> pidlist;
 
+	for(int i=0; i<counters; i++) {
+		oldvals[i]=0;
+	}
+
 	/*
 	// signal handler for this thread
 	struct sigaction act;
@@ -532,14 +536,14 @@ void fork_and_run(po::variables_map &options) {
 		ofs.open("veprof.out",std::ofstream::out);
 		struct ve_cpuinfo ci;
 		ve_cpu_info(card.load(), &ci);
-		ofs << "# version,PMMR,hostname,card,mhz" << "\n";
-		ofs << FILEVERSION << "," << pmmr << "," << getenv("HOSTNAME") << "," << card.load() << "," << ci.mhz << "\n";
-		ofs << "# samples,USRCC,EX,VX,FPEC,VE,VECC,L1MCC,VE2,VAREC,VLDEC,PCCC,PMC10,VLEC,VLCME,FMAEC,PTCC,TTCC,VL,symbol\n";
+		ofs << "# version;PMMR;hostname;card;mhz" << "\n";
+		ofs << FILEVERSION << ";" << pmmr << ";" << getenv("HOSTNAME") << ";" << card.load() << ";" << ci.mhz << "\n";
+		ofs << "# samples;USRCC;EX;VX;FPEC;VE;VECC;L1MCC;VE2;VAREC;VLDEC;PCCC;PMC10;VLEC;VLCME;FMAEC;PTCC;TTCC;VL;symbol\n";
 		for(auto e : datatable ) {
 			if (e.count>0) {
-				ofs << e.count << ",";
+				ofs << e.count << ";";
 				for(int i=0; i<counters-1; i++) {
-					ofs << e.vals[i] << ",";
+					ofs << e.vals[i] << ";";
 				}
 				ofs << *e.symbolname << std::endl;
 			}
@@ -593,14 +597,14 @@ void full_card(po::variables_map options) {
 	ofs.open("veprof.out",std::ofstream::out);
 	struct ve_cpuinfo ci;
 	ve_cpu_info(card.load(), &ci);
-	ofs << "# version,PMMR,hostname,card,mhz" << "\n";
-	ofs << FILEVERSION << "," << pmmr << "," << getenv("HOSTNAME") << "," << fullcardnr << "," << ci.mhz << "\n";
-	ofs << "# samples,USRCC,EX,VX,FPEC,VE,VECC,L1MCC,VE2,VAREC,VLDEC,PCCC,PMC10,VLEC,VLCME,FMAEC,PTCC,TTCC,VL,symbol\n";
+	ofs << "# version;PMMR;hostname;card;mhz" << "\n";
+	ofs << FILEVERSION << ";" << pmmr << ";" << getenv("HOSTNAME") << ";" << fullcardnr << ";" << ci.mhz << "\n";
+	ofs << "# samples;USRCC;EX;VX;FPEC;VE;VECC;L1MCC;VE2;VAREC;VLDEC;PCCC;PMC10;VLEC;VLCME;FMAEC;PTCC;TTCC;VL;symbol\n";
 	for(auto e : datatable ) {
 		if (e.count>0) {
-			ofs << e.count << ",";
+			ofs << e.count << ";";
 			for(int i=0; i<counters-1; i++) {
-				ofs << e.vals[i] << ",";
+				ofs << e.vals[i] << ";";
 			}
 			ofs << *e.symbolname << std::endl;
 		}
