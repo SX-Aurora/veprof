@@ -117,6 +117,8 @@ void sample() {
 	int regs[counters] = 	{IC, USRCC, PMC00, PMC01, PMC02, PMC03, PMC04, PMC05, PMC06, PMC07, PMC08, PMC09,
         		PMC10, PMC11, PMC12, PMC13, PMC14, PMC15, VL};
 	uint64_t vals[counters],oldvals[counters];
+	std::map<unsigned long, uint64_t[counters]> ompoldvals;
+
 	std::vector<pid_t> pidlist;
 
 	for(int i=0; i<counters; i++) {
@@ -204,10 +206,15 @@ void sample() {
 								addr->data->count++;
 								addr->data->e_time+=(dtime3-dtime1);
 								for(int i=0; i<counters-1; i++) {
-									addr->data->vals[i]+=(vals[i+1]-oldvals[i+1]);
+									auto old = ompoldvals.find(ppid);
+									if (old!=ompoldvals.end()) {
+										addr->data->vals[i] += (vals[i+1]-old->second[i+1]);
+									} else {
+										addr->data->vals[i] += vals[i+1];
+									}
 								}	
 								for(int i=0; i<counters; i++) {
-									oldvals[i]=vals[i];
+									ompoldvals[ppid][i]=vals[i];
 								}
 							} else {
 								//if (debug) 
@@ -217,6 +224,7 @@ void sample() {
 						}
 					}
 				}
+				printf("!!!!>>>> ompoldvals.size() %d\n", ompoldvals.size());
 			}
 		} else {
 			// sample ALL processes on one card
