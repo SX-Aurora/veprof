@@ -4,7 +4,7 @@
 *this is work in progress, expect output format changes.*
 
 Goal of this tool is to get a profile of an application running on VE card without instrumenting
-the executable in any way, with lowest possbile overhead. The executable has to contain symbols.
+the executable in any way, with lowest possible overhead. The executable has to contain symbols.
 
 Output is a textfile containing performance counters and routine names, which can be viewed with `veprof_display`.
 
@@ -51,9 +51,8 @@ subroutine            46.67  45.00    0.06    0.06  96.21 98.55  32109  65167 25
 
 ## known bugs
 
-* sometimes applicatin deadlock when beeing profiled (under investigation)
-* deadlocks with openmp codes, the application deadlocks when being profiled.
-* there is an issue with card numbering in full card mode, with systems with one VE card, that should be no problem.
+* sometimes application deadlock when beeing profiled (under investigation)
+* very rear deadlocks with openmp codes, the application deadlocks when being profiled.
 
 ## future directions
 
