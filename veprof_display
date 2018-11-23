@@ -60,7 +60,7 @@ for l in infile:
 infile.close()
  
 # sort expensive entry first, sort for samples, which should come close to elapse time
-values.sort(key=lambda a: a[1],reverse=True)
+values.sort(key=lambda a: a[0],reverse=True)
 
 
 # get some  total values
