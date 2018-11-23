@@ -144,51 +144,9 @@ void sample() {
 				}
 
 				int r=ve_get_regvals(card, pid, 19, regs, vals);	
-				clock_gettime(CLOCK_MONOTONIC_RAW, &time3);
-				dtime3 = time3.tv_nsec + time3.tv_sec*1000000000.0;
-
-				// search symbol to address
-				if (vals[0] != 0) {
-					auto addr = std::upper_bound(searchtable.begin(), searchtable.end(), addr_e{vals[0], nullptr}, 
-									[](const addr_e &a, const addr_e &b){ return (a.addr < b.addr); } );
-					if (addr != searchtable.end() && addr!=searchtable.begin()) {
-						addr--;
-						addr->data->count++;
-						addr->data->e_time+=(dtime3-dtime1);
-						for(int i=0; i<counters-1; i++) {
-							addr->data->vals[i]+=vals[i+1]-oldvals[i+1];
-						}	
-						for(int i=0; i<counters; i++) {
-							oldvals[i]=vals[i];
-						}
-					} else {
-						//if (debug) 
-						//	std::cerr << "veprof: unknown symbol" << std::endl;
-						// TODO: count unknown symbols
-					}
-				}
-			} else {
-				// openmp mode, sample given PID and all childs
-				pidlist.clear();
-				if (debug) printf("<< openmp sampling on card %d / syscard %d >>\n", card.load(), syscard);
-				get_ve_pid_list(syscard, pidlist);
-				// FIXME this contains now all pids on card, we could filter for only childs of pid,
-				// for mixed MPI and openmp codes with several MPI ranks on one card, but this would be expensive	
-
-				for(auto ppid : pidlist) {
-					if (debug) std::cout << "<< sampling " << ppid << " >> " << std::endl;
-
-					if (pmmr == 0xffffffffffffffff) {
-						int reg = PMMR;
-						int r=ve_get_regvals(card, ppid, 1, &reg, vals);
-						pmmr=vals[0];
-					}
-
-					int r=ve_get_regvals(card, ppid, 19, regs, vals);	
+				if (r!=-1) {
 					clock_gettime(CLOCK_MONOTONIC_RAW, &time3);
 					dtime3 = time3.tv_nsec + time3.tv_sec*1000000000.0;
-
-					if (debug) std::cout << "<< addr = " << vals[0] << " " << r << std::endl;
 
 					// search symbol to address
 					if (vals[0] != 0) {
@@ -206,8 +164,56 @@ void sample() {
 							}
 						} else {
 							//if (debug) 
-								// std::cerr << "veprof: unknown symbol" << std::endl;
+							//	std::cerr << "veprof: unknown symbol" << std::endl;
 							// TODO: count unknown symbols
+						}
+					}
+				}
+			} else {
+				// openmp mode, sample given PID and all childs
+				pidlist.clear();
+				if (debug) printf("<< openmp sampling on card %d / syscard %d >>\n", card.load(), syscard);
+				get_ve_pid_list(syscard, pidlist);
+				// FIXME this contains now all pids on card, we could filter for only childs of pid,
+				// for mixed MPI and openmp codes with several MPI ranks on one card, but this would be expensive	
+
+				// FIXME... oldval has to be per process.... may be data as well? what do we want? average orper process...
+
+				for(auto ppid : pidlist) {
+					if (debug) std::cout << "<< sampling " << ppid << " >> " << std::endl;
+
+					if (pmmr == 0xffffffffffffffff) {
+						int reg = PMMR;
+						int r=ve_get_regvals(card, ppid, 1, &reg, vals);
+						pmmr=vals[0];
+					}
+
+					int r=ve_get_regvals(card, ppid, 19, regs, vals);	
+					if (r!=-1) {
+						clock_gettime(CLOCK_MONOTONIC_RAW, &time3);
+						dtime3 = time3.tv_nsec + time3.tv_sec*1000000000.0;
+
+						if (debug) std::cout << "<< addr = " << vals[0] << " " << r << std::endl;
+
+						// search symbol to address
+						if (vals[0] != 0) {
+							auto addr = std::upper_bound(searchtable.begin(), searchtable.end(), addr_e{vals[0], nullptr}, 
+											[](const addr_e &a, const addr_e &b){ return (a.addr < b.addr); } );
+							if (addr != searchtable.end() && addr!=searchtable.begin()) {
+								addr--;
+								addr->data->count++;
+								addr->data->e_time+=(dtime3-dtime1);
+								for(int i=0; i<counters-1; i++) {
+									addr->data->vals[i]+=(vals[i+1]-oldvals[i+1]);
+								}	
+								for(int i=0; i<counters; i++) {
+									oldvals[i]=vals[i];
+								}
+							} else {
+								//if (debug) 
+									// std::cerr << "veprof: unknown symbol" << std::endl;
+								// TODO: count unknown symbols
+							}
 						}
 					}
 				}
@@ -394,7 +400,7 @@ end:
 // get process list of all cards with cardid=-1 or a specific card
 void get_ve_pid_list(int cardid, std::vector<pid_t> &pidlist) {
 	char pathbuffer[256];
-	unsigned long pid;
+	unsigned long pid, lastpid;
 
 	for(int c=0; c<10; c++) {
 		if (cardid==-1 || cardid==c) {
@@ -403,11 +409,14 @@ void get_ve_pid_list(int cardid, std::vector<pid_t> &pidlist) {
 			std::ifstream file(path.str());
 			if (file.good()) {
 				pid=-1;
+				lastpid==-2;
 				while(!file.eof()) {
 						file >> pid;
 						if(pid!=-1) {
 							// if (debug) std::cout << "<< append to pid list " << pid << std::endl;	
-							pidlist.push_back((pid_t)pid);
+							if (pid != lastpid)  
+								pidlist.push_back((pid_t)pid);
+								lastpid = pid;
 						}
 				}
 				file.close();	
