@@ -48,6 +48,7 @@
 #include <sstream>
 #include <iostream>
 #include <vector>
+#include <map>
 #include <utility>
 #include <algorithm>
 #include <fstream>
@@ -78,6 +79,7 @@ std::atomic<long> pid;
 //  flags
 bool debug = false;
 bool verbose = false;
+bool openmp = true;
 int fullcardnr=-1;
 std::vector<std::string> command;
 char **cargs;
@@ -107,6 +109,8 @@ uint64_t pmmr = 0xffffffffffffffff;
 void get_ve_pid_list(int cardid, std::vector<pid_t> &pidlist);
 void sig_handler_nothing(int);
 void sig_handler_setdone(int);
+inline int cached_pid_search(pid_t);
+int cached_pid_search_sys(pid_t pid);
 
 // collect the data
 void sample() {
@@ -119,12 +123,7 @@ void sample() {
 		oldvals[i]=0;
 	}
 
-	/*
-	// signal handler for this thread
-	struct sigaction act;
-	act.sa_handler = sig_handler_setdone;
-	sigaction(SIGINT, &act, NULL);
- 	*/
+	int syscard = cached_pid_search_sys(pid.load());
 
 	while(1) {
 		struct timespec time1,time2, time3;
@@ -134,40 +133,88 @@ void sample() {
 
 		// data collection from running aurora cards
 		if (pid.load()!=-1) {
+			// not fullcard mode
+			if (!openmp) {
+				// sample ONE process
 
-			if (pmmr == 0xffffffffffffffff) {
-				int reg = PMMR;
-				int r=ve_get_regvals(card, pid, 1, &reg, vals);
-				pmmr=vals[0];
-			}
+				if (pmmr == 0xffffffffffffffff) {
+					int reg = PMMR;
+					int r=ve_get_regvals(card, pid, 1, &reg, vals);
+					pmmr=vals[0];
+				}
 
-			// sample ON process
-			int r=ve_get_regvals(card, pid, 19, regs, vals);	
-			clock_gettime(CLOCK_MONOTONIC_RAW, &time3);
-			dtime3 = time3.tv_nsec + time3.tv_sec*1000000000.0;
+				int r=ve_get_regvals(card, pid, 19, regs, vals);	
+				clock_gettime(CLOCK_MONOTONIC_RAW, &time3);
+				dtime3 = time3.tv_nsec + time3.tv_sec*1000000000.0;
 
-			// search symbol to address
-			if (vals[0] != 0) {
-				auto addr = std::upper_bound(searchtable.begin(), searchtable.end(), addr_e{vals[0], nullptr}, 
-								[](const addr_e &a, const addr_e &b){ return (a.addr < b.addr); } );
-				if (addr != searchtable.end() && addr!=searchtable.begin()) {
-					addr--;
-					addr->data->count++;
-					addr->data->e_time+=(dtime3-dtime1);
-					for(int i=0; i<counters-1; i++) {
-						addr->data->vals[i]+=vals[i+1]-oldvals[i+1];
-					}	
-					for(int i=0; i<counters; i++) {
-						oldvals[i]=vals[i];
+				// search symbol to address
+				if (vals[0] != 0) {
+					auto addr = std::upper_bound(searchtable.begin(), searchtable.end(), addr_e{vals[0], nullptr}, 
+									[](const addr_e &a, const addr_e &b){ return (a.addr < b.addr); } );
+					if (addr != searchtable.end() && addr!=searchtable.begin()) {
+						addr--;
+						addr->data->count++;
+						addr->data->e_time+=(dtime3-dtime1);
+						for(int i=0; i<counters-1; i++) {
+							addr->data->vals[i]+=vals[i+1]-oldvals[i+1];
+						}	
+						for(int i=0; i<counters; i++) {
+							oldvals[i]=vals[i];
+						}
+					} else {
+						//if (debug) 
+						//	std::cerr << "veprof: unknown symbol" << std::endl;
+						// TODO: count unknown symbols
 					}
-				} else {
-					//if (debug) 
-					//	std::cerr << "veprof: unknown symbol" << std::endl;
-					// TODO: count unknown symbols
+				}
+			} else {
+				// openmp mode, sample given PID and all childs
+				pidlist.clear();
+				if (debug) printf("<< openmp sampling on card %d / syscard %d >>\n", card.load(), syscard);
+				get_ve_pid_list(syscard, pidlist);
+				// FIXME this contains now all pids on card, we could filter for only childs of pid,
+				// for mixed MPI and openmp codes with several MPI ranks on one card, but this would be expensive	
+
+				for(auto ppid : pidlist) {
+					if (debug) std::cout << "<< sampling " << ppid << " >> " << std::endl;
+
+					if (pmmr == 0xffffffffffffffff) {
+						int reg = PMMR;
+						int r=ve_get_regvals(card, ppid, 1, &reg, vals);
+						pmmr=vals[0];
+					}
+
+					int r=ve_get_regvals(card, ppid, 19, regs, vals);	
+					clock_gettime(CLOCK_MONOTONIC_RAW, &time3);
+					dtime3 = time3.tv_nsec + time3.tv_sec*1000000000.0;
+
+					if (debug) std::cout << "<< addr = " << vals[0] << " " << r << std::endl;
+
+					// search symbol to address
+					if (vals[0] != 0) {
+						auto addr = std::upper_bound(searchtable.begin(), searchtable.end(), addr_e{vals[0], nullptr}, 
+										[](const addr_e &a, const addr_e &b){ return (a.addr < b.addr); } );
+						if (addr != searchtable.end() && addr!=searchtable.begin()) {
+							addr--;
+							addr->data->count++;
+							addr->data->e_time+=(dtime3-dtime1);
+							for(int i=0; i<counters-1; i++) {
+								addr->data->vals[i]+=vals[i+1]-oldvals[i+1];
+							}	
+							for(int i=0; i<counters; i++) {
+								oldvals[i]=vals[i];
+							}
+						} else {
+							//if (debug) 
+								// std::cerr << "veprof: unknown symbol" << std::endl;
+							// TODO: count unknown symbols
+						}
+					}
 				}
 			}
 		} else {
 			// sample ALL processes on one card
+
 			pidlist.clear();
 			get_ve_pid_list(fullcardnr, pidlist);
 			for(auto ppid : pidlist) {
@@ -175,15 +222,11 @@ void sample() {
 
 				if (pmmr == 0xffffffffffffffff) {
 					int reg = PMMR;
-					//FIXME nr is wrong
-					//r=ve_get_regvals(fullcardnr, ppid, 1, &reg, vals);
-					int r=ve_get_regvals(0, ppid, 1, &reg, vals);
+					int r=ve_get_regvals(cached_pid_search(ppid), ppid, 1, &reg, vals);
 					pmmr=vals[0];
 				}
 
-				// FIXME this card nr is probably wrong
-				// int r=ve_get_regvals(fullcardnr, ppid, 19, regs, vals);	
-				int r=ve_get_regvals(0, ppid, 19, regs, vals);	
+				int r=ve_get_regvals(cached_pid_search(ppid), ppid, 19, regs, vals);	
 				clock_gettime(CLOCK_MONOTONIC_RAW, &time3);
 				dtime3 = time3.tv_nsec + time3.tv_sec*1000000000.0;
 
@@ -263,16 +306,19 @@ void getsymboltable(const char *cmd, std::vector<std::pair<uint64_t, std::string
 	}
 }
 
+
 // stolen from EF
 int nodeid_of_pid(pid_t pid)
 {
 	int i, nodeid;
-	struct ve_nodeinfo ni;
+	static int firstcall = 1;
+	static struct ve_nodeinfo ni;
 
-	if (ve_node_info(&ni) != 0) {
+	if (firstcall && (ve_node_info(&ni) != 0)) {
 		fprintf(stderr, "ve_node_info failed!\n");
 		exit(1);
 	}
+	firstcall = 0;
 
 	if (debug)
 		printf(">> nodeid_of_pid: pid=%ld ni.total_node_count=%d\n",pid, ni.total_node_count);
@@ -289,6 +335,61 @@ int nodeid_of_pid(pid_t pid)
 	return -1;
 }
 
+// caching pid to card mapping
+inline int cached_pid_search(pid_t pid) {
+	static std::map<pid_t,int> cache;
+
+	auto hit = cache.find(pid);
+	if (hit != cache.end()) {
+		if (debug)
+			printf(">> hit in cached_pid_search %ld->%d\n",(long)pid, hit->second);
+		return hit->second;
+	} else {
+		pid_t cpid = nodeid_of_pid(pid);
+		cache[pid] = cpid;
+		return cpid;
+	}
+}
+
+// search for pid on cards as numbered in /sys/class/ve
+int cached_pid_search_sys(pid_t pid) {
+	static std::map<pid_t,int> cache;
+	char pathbuffer[256];
+	int card = -1;
+
+	auto hit = cache.find(pid);
+	if (hit != cache.end()) {
+		if (debug)
+			printf(">> hit in cached_pid_search_sys %ld->%d\n",(long)pid, hit->second);
+		return hit->second;
+	} else {
+		for(int c=0; c<10; c++) {
+			std::ostringstream path(pathbuffer);
+			path << "/sys/class/ve/ve" << c << "/task_id_all";
+			std::ifstream file(path.str());
+			if (file.good()) {
+				uint64_t cpid = -1;
+				while(!file.eof()) {
+						file >> cpid;
+						if(cpid!=-1) {
+							if (pid == cpid) {
+								// if (debug) std::cout << "<< hit in card " << c << std::endl;	
+								file.close();	
+								card = c;
+								goto found;
+							}
+						}
+				}
+				file.close();	
+			}
+		}
+		goto end;
+found:
+		cache[pid] = card;
+end:		
+		return card;
+	}
+}
 
 // get process list of all cards with cardid=-1 or a specific card
 void get_ve_pid_list(int cardid, std::vector<pid_t> &pidlist) {
@@ -345,10 +446,10 @@ pid_t getppid(pid_t pid) {
 }
 
 // search for a process having the given process as parent on card 
-int find_child_pid(pid_t pid) {
+int find_child_pid(pid_t pid, int cardnr=-1) {
 	// if (debug) std::cout << "<< searching child >>" << std::endl;
 	std::vector<pid_t> pidlist;
-	get_ve_pid_list(-1, pidlist);
+	get_ve_pid_list(cardnr, pidlist);
 	for(auto apid : pidlist) {
 		pid_t ppid=-2;
 		while(ppid!=1 and ppid!=-1) {
@@ -436,7 +537,8 @@ po::variables_map option_parser(int argc, char* argv[])
 	("command,c", po::value<std::vector<std::string>>(&command), "command (for execution), or first positional argument")
 	("executable,e", po::value<std::string>(), "executable (for symboltable)")
 	("samplerate,s", po::value<int>(&samplerate), "sample rate [Hz]")
-	("fullcard,f", po::value<int>(&fullcardnr), "full card mode, read counters for all processes on card# assuming it is executable given with -e")
+        ("openmp", po::bool_switch(&openmp)->default_value(false), "openmp mode, samples all processes on same card as command")
+	// ("fullcard,f", po::value<int>(&fullcardnr), "full card mode, read counters for all processes on card# assuming it is executable given with -e")
 	("verbose,v", po::bool_switch(&verbose)->default_value(false), "verbose output")
 	("debug,d", po::bool_switch(&debug)->default_value(false), "debug output")
 	;
