@@ -1,4 +1,5 @@
 /*
+ *	vim: syntax=cpp tabstop=4 shiftwidth=4
  *
  *	veprof
  *
@@ -49,6 +50,7 @@
 #include <iostream>
 #include <vector>
 #include <map>
+#include <array>
 #include <utility>
 #include <algorithm>
 #include <fstream>
@@ -79,7 +81,7 @@ std::atomic<long> pid;
 //  flags
 bool debug = false;
 bool verbose = false;
-bool openmp = true;
+bool openmp = false;
 int fullcardnr=-1;
 std::vector<std::string> command;
 char **cargs;
@@ -93,16 +95,31 @@ struct data_e {
 	uint64_t vals[counters-1];	// counters as sampled, to be aggregated, -1 as IC can be ommited
 	std::string *symbolname;	// symbolic name
 };
+struct ompdata_e {
+	uint64_t addr;							// sample address
+	// FIXME optimization: move count and e_time into vals to reduce map accesses
+	std::map<uint64_t, uint64_t> count;							// number of hits to this sample
+	std::map<uint64_t, double> e_time;							// elapsed time
+	std::map<uint64_t, std::array<uint64_t,counters-1>> vals;	// counters as sampled, to be aggregated, -1 as IC can be ommited
+	std::string *symbolname;					// symbolic name
+};
 
 // search list for binary search, with pointer to real data to keep it small for good cache usage
 struct addr_e {
 	uint64_t addr;	// address of symbol entry
 	data_e *data;	// pointer to data with name and samples
 };
+struct ompaddr_e {
+	uint64_t addr;	// address of symbol entry
+	ompdata_e *data;// pointer to data with name and samples
+};
 
 // global data
 std::vector<addr_e> searchtable;
+std::vector<ompaddr_e> ompsearchtable;
 std::vector<data_e> datatable;
+std::vector<ompdata_e> ompdatatable;
+
 uint64_t pmmr = 0xffffffffffffffff;
 
 // forward prototypes
@@ -199,22 +216,27 @@ void sample() {
 
 						// search symbol to address
 						if (vals[0] != 0) {
-							auto addr = std::upper_bound(searchtable.begin(), searchtable.end(), addr_e{vals[0], nullptr}, 
-											[](const addr_e &a, const addr_e &b){ return (a.addr < b.addr); } );
-							if (addr != searchtable.end() && addr!=searchtable.begin()) {
+							auto addr = std::upper_bound(ompsearchtable.begin(), ompsearchtable.end(), ompaddr_e{vals[0], nullptr}, 
+											[](const ompaddr_e &a, const ompaddr_e &b){ return (a.addr < b.addr); } );
+							if (addr != ompsearchtable.end() && addr!=ompsearchtable.begin()) {
 								addr--;
-								addr->data->count++;
-								addr->data->e_time+=(dtime3-dtime1);
+								if (addr->data->count.find(ppid)!=addr->data->count.end()) {	
+									addr->data->count[ppid]++;
+									addr->data->e_time[ppid]+=(dtime3-dtime1);
+								} else {
+									addr->data->count[ppid]=1;
+									addr->data->e_time[ppid]=dtime3-dtime1;
+								}
 								for(int i=0; i<counters-1; i++) {
 									auto old = ompoldvals.find(ppid);
 									if (old!=ompoldvals.end()) {
-										addr->data->vals[i] += (vals[i+1]-old->second[i+1]);
+										addr->data->vals[ppid][i] += (vals[i+1]-old->second[i+1]);
 									} else {
-										addr->data->vals[i] += vals[i+1];
+										addr->data->vals[ppid][i] = vals[i+1];
 									}
 								}	
 								for(int i=0; i<counters; i++) {
-									ompoldvals[ppid][i]=vals[i];
+									ompoldvals[ppid][i] = vals[i];
 								}
 							} else {
 								//if (debug) 
@@ -224,7 +246,6 @@ void sample() {
 						}
 					}
 				}
-				printf("!!!!>>>> ompoldvals.size() %d\n", ompoldvals.size());
 			}
 		} else {
 			// sample ALL processes on one card
@@ -658,13 +679,28 @@ void fork_and_run(po::variables_map &options) {
 		ofs << "# version;PMMR;hostname;card;mhz" << "\n";
 		ofs << FILEVERSION << ";" << pmmr << ";" << getenv("HOSTNAME") << ";" << card.load() << ";" << ci.mhz << "\n";
 		ofs << "# samples;USRCC;EX;VX;FPEC;VE;VECC;L1MCC;VE2;VAREC;VLDEC;PCCC;PMC10;VLEC;VLCME;FMAEC;PTCC;TTCC;VL;symbol\n";
-		for(auto e : datatable ) {
-			if (e.count>0) {
-				ofs << e.count << ";";
-				for(int i=0; i<counters-1; i++) {
-					ofs << e.vals[i] << ";";
+ 		if (!openmp) {
+			for(auto e : datatable ) {
+				if (e.count>0) {
+					ofs << e.count << ";";
+					for(int i=0; i<counters-1; i++) {
+						ofs << e.vals[i] << ";";
+					}
+					ofs << *e.symbolname << std::endl;
 				}
-				ofs << *e.symbolname << std::endl;
+			}
+		} else {
+			for(auto e : ompdatatable ) {
+				for (auto &processes : e.count) {
+					auto pid = processes.first;
+					if (e.count[pid]>0) {
+						ofs << e.count[pid] << ";";
+						for(int i=0; i<counters-1; i++) {
+							ofs << e.vals[pid][i] << ";";
+						}
+						ofs << *e.symbolname << std::endl;
+					}
+				}
 			}
 		}		
 		ofs.close();
@@ -755,23 +791,42 @@ int main(int argc, char** argv) {
 	}
 
 
-	// create search and data tables
-	datatable.reserve(symbollist.size());
-	searchtable.reserve(symbollist.size());
 	if (debug) 
 		std::cout << "<< read " << symbollist.size() << " symbols >>" << std::flush;
-	for(auto &e : symbollist) {
-		data_e de;
-		de.addr = e.first;
-		de.count = 0;
-		de.e_time = 0.0;
-		for(int i=0; i<counters-1; i++) {
-			de.vals[i] = 0;
+	
+	// create search and data tables
+	if(!openmp) {
+		datatable.reserve(symbollist.size());
+		searchtable.reserve(symbollist.size());
+		for(auto &e : symbollist) {
+			data_e de;
+			de.addr = e.first;
+			de.count = 0;
+			de.e_time = 0.0;
+			for(int i=0; i<counters-1; i++) {
+				de.vals[i] = 0;
+			}
+			de.symbolname = &e.second; 	// store pointer into symbollist
+			datatable.push_back(de);	// store a copy
+			addr_e ae = { e.first , &datatable[datatable.size()-1]};
+			searchtable.push_back(ae);	// store a copy
 		}
-		de.symbolname = &e.second; 	// store pointer into symbollist
-		datatable.push_back(de);	// store a copy
-		addr_e ae = { e.first , &datatable[datatable.size()-1]};
-		searchtable.push_back(ae);	// store a copy
+	} else {    	// non-openmp
+		ompdatatable.reserve(symbollist.size());
+		ompsearchtable.reserve(symbollist.size());
+		for(auto &e : symbollist) {
+			ompdata_e de;
+			de.addr = e.first;
+			// de.count = 0;
+			// de.e_time = 0.0;
+			//for(int i=0; i<counters-1; i++) {
+			//	de.vals[i] = 0;
+			//}
+			de.symbolname = &e.second; 	// store pointer into symbollist
+			ompdatatable.push_back(de);	// store a copy
+			ompaddr_e ae = { e.first , &ompdatatable[ompdatatable.size()-1]};
+			ompsearchtable.push_back(ae);	// store a copy
+		}
 	}
 	
 	// run one of the sample modes
