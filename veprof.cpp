@@ -678,9 +678,16 @@ void fork_and_run(po::variables_map &options) {
 		if (debug)
 			printf(">> joined <<\n");
 
-		// write out data  TODO: put mpi rank into name
+		// write out data 
 		std::ofstream ofs;
-		ofs.open("veprof.out",std::ofstream::out);
+		char pathbuffer[255];
+		std::ostringstream outfilename(pathbuffer);
+		if (getenv("MPIRANK")!=NULL) {
+			outfilename << "veprof." << getenv("MPIUNIVERSE") << "." << getenv("MPIRANK") << "out";
+		} else {
+			outfilename << "veprof.out";
+		}
+		ofs.open(outfilename.str(),std::ofstream::out);
 		struct ve_cpuinfo ci;
 		ve_cpu_info(card.load(), &ci);
 		ofs << "# version;PMMR;hostname;card;mhz" << "\n";
@@ -756,7 +763,14 @@ void full_card(po::variables_map options) {
 
 	// write out data  TODO: put mpi rank into name
 	std::ofstream ofs;
-	ofs.open("veprof.out",std::ofstream::out);
+	char pathbuffer[255];
+	std::ostringstream outfilename(pathbuffer);
+	if (getenv("MPIRANK")!=NULL) {
+		outfilename << "veprof." << getenv("MPIUNIVERSE") << "." << getenv("MPIRANK") << "out";
+	} else {
+		outfilename << "veprof.out";
+	}
+	ofs.open(outfilename.str(),std::ofstream::out);
 	struct ve_cpuinfo ci;
 	ve_cpu_info(card.load(), &ci);
 	ofs << "# version;PMMR;hostname;card;mhz" << "\n";
