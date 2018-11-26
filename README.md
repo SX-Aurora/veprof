@@ -27,6 +27,10 @@ sample a wrapper calling exe
 
     ./veprof -e ./exe ./wrapper.sh
 
+sample an openmp code (needs some VEOS patches beyond 1.3.2)
+
+    ./veprof --openmp ./exe
+
 display gathered results:
 
     ./veprof_display veprof.out
