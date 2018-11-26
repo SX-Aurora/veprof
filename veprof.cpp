@@ -42,7 +42,6 @@
 #include <string.h>
 #include <curses.h>
 
-
 #include <atomic>
 #include <thread>
 #include <string>
@@ -50,6 +49,7 @@
 #include <iostream>
 #include <vector>
 #include <map>
+#include <set>
 #include <array>
 #include <utility>
 #include <algorithm>
@@ -82,6 +82,7 @@ std::atomic<long> pid;
 bool debug = false;
 bool verbose = false;
 bool openmp = false;
+bool noopenmpblacklist = false;
 int fullcardnr=-1;
 std::vector<std::string> command;
 char **cargs;
@@ -119,6 +120,7 @@ std::vector<addr_e> searchtable;
 std::vector<ompaddr_e> ompsearchtable;
 std::vector<data_e> datatable;
 std::vector<ompdata_e> ompdatatable;
+std::set<uint64_t> blacklist;
 
 uint64_t pmmr = 0xffffffffffffffff;
 
@@ -133,7 +135,7 @@ int cached_pid_search_sys(pid_t pid);
 void sample() {
 	int regs[counters] = 	{IC, USRCC, PMC00, PMC01, PMC02, PMC03, PMC04, PMC05, PMC06, PMC07, PMC08, PMC09,
         		PMC10, PMC11, PMC12, PMC13, PMC14, PMC15, VL};
-	uint64_t vals[counters],oldvals[counters];
+	uint64_t vals[counters],oldvals[counters],blacklistskip=0;
 	std::map<unsigned long, uint64_t[counters]> ompoldvals;
 
 	std::vector<pid_t> pidlist;
@@ -196,8 +198,6 @@ void sample() {
 				// FIXME this contains now all pids on card, we could filter for only childs of pid,
 				// for mixed MPI and openmp codes with several MPI ranks on one card, but this would be expensive	
 
-				// FIXME... oldval has to be per process.... may be data as well? what do we want? average orper process...
-
 				for(auto ppid : pidlist) {
 					if (debug) std::cout << "<< sampling " << ppid << " >> " << std::endl;
 
@@ -220,23 +220,29 @@ void sample() {
 											[](const ompaddr_e &a, const ompaddr_e &b){ return (a.addr < b.addr); } );
 							if (addr != ompsearchtable.end() && addr!=ompsearchtable.begin()) {
 								addr--;
-								if (addr->data->count.find(ppid)!=addr->data->count.end()) {	
-									addr->data->count[ppid]++;
-									addr->data->e_time[ppid]+=(dtime3-dtime1);
-								} else {
-									addr->data->count[ppid]=1;
-									addr->data->e_time[ppid]=dtime3-dtime1;
-								}
-								for(int i=0; i<counters-1; i++) {
-									auto old = ompoldvals.find(ppid);
-									if (old!=ompoldvals.end()) {
-										addr->data->vals[ppid][i] += (vals[i+1]-old->second[i+1]);
+								if (blacklist.count(addr->data->addr)==0) {
+									if (addr->data->count.find(ppid)!=addr->data->count.end()) {	
+										addr->data->count[ppid]+=1+blacklistskip;
+										// addr->data->e_time[ppid]+=(dtime3-dtime1);
 									} else {
-										addr->data->vals[ppid][i] = vals[i+1];
+										addr->data->count[ppid]=1+blacklistskip;
+										// addr->data->e_time[ppid]=dtime3-dtime1;
 									}
-								}	
-								for(int i=0; i<counters; i++) {
-									ompoldvals[ppid][i] = vals[i];
+									for(int i=0; i<counters-1; i++) {
+										auto old = ompoldvals.find(ppid);
+										if (old!=ompoldvals.end()) {
+											addr->data->vals[ppid][i] += (vals[i+1]-old->second[i+1]);
+										} else {
+											addr->data->vals[ppid][i] = vals[i+1];
+										}
+									}	
+									for(int i=0; i<counters; i++) {
+										ompoldvals[ppid][i] = vals[i];
+									}
+									blacklistskip=0;
+								} else {
+									// printf("bl %p\n", addr->data->addr);
+									blacklistskip++;
 								}
 							} else {
 								//if (debug) 
@@ -575,7 +581,8 @@ po::variables_map option_parser(int argc, char* argv[])
 	("command,c", po::value<std::vector<std::string>>(&command), "command (for execution), or first positional argument")
 	("executable,e", po::value<std::string>(), "executable (for symboltable)")
 	("samplerate,s", po::value<int>(&samplerate), "sample rate [Hz]")
-        ("openmp", po::bool_switch(&openmp)->default_value(false), "openmp mode, samples all processes on same card as command")
+    ("openmp", po::bool_switch(&openmp)->default_value(false), "openmp mode, samples all processes on same card as command")
+    ("noopenmpblacklist", po::bool_switch(&noopenmpblacklist)->default_value(false), "do not blacklist certain openmp calls")
 	// ("fullcard,f", po::value<int>(&fullcardnr), "full card mode, read counters for all processes on card# assuming it is executable given with -e")
 	("verbose,v", po::bool_switch(&verbose)->default_value(false), "verbose output")
 	("debug,d", po::bool_switch(&debug)->default_value(false), "debug output")
@@ -790,6 +797,16 @@ int main(int argc, char** argv) {
 		getsymboltable(options["command"].as<std::vector<std::string>>()[0].c_str(), symbollist);
 	}
 
+	// build up blacklist of symbols to ignore
+	if (!noopenmpblacklist) {
+		for(auto &s : symbollist) {
+			if (s.second.find("__cr")==0 or s.second.find("__vthr")==0) {
+				blacklist.insert(s.first);
+				// if (debug) 
+					printf("<< blacklisted %s %p >>\n", s.second.c_str(), s.first);
+			}
+		}	
+	}
 
 	if (debug) 
 		std::cout << "<< read " << symbollist.size() << " symbols >>" << std::flush;
